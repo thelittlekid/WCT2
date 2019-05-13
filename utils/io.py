@@ -113,3 +113,59 @@ def mkdir(dname):
         os.makedirs(dname)
     else:
         assert os.path.isdir(dname), 'alread exists filename {}'.format(dname)
+
+
+def match_filenames(src_dir, target_dir):
+    """
+    Generate duplicates to match the file names for controlled experiments with a fixed content/style
+    (discarded: no need to generate duplicates, we can set the file name to a particular one as in get_filenames)
+    :param src_dir: directory of the content/style under control
+    :param target_dir: directory of the style/content with various test samples
+    :return: None
+    """
+    if not os.path.exists(src_dir):
+        raise Exception("Source directory does not exist!")
+    elif not os.listdir(src_dir):
+        raise Exception("Source file does not exist!")
+
+    from shutil import copy, SameFileError
+    src_path = os.path.join(src_dir, os.listdir(src_dir)[0])
+    target_fnames = os.listdir(target_dir)
+    for fname in target_fnames:
+        try:
+            copy(src_path, os.path.join(src_dir, fname))
+        except SameFileError:
+            pass
+
+
+def get_filepaths(config, fname, ctrl_fname):
+    """
+    Get file paths and for image pairs
+    :param config: namespace of configuration. The field config.controlled specifies the mode: original, controlled content
+                   or controlled style
+    :param fname: name of the file that is not on the controlled side
+    :param ctrl_fname: name of the file that is on the controlled side
+    :return: file paths of the inputs and output
+    """
+
+    if not config.controlled:
+        _content = os.path.join(config.content, fname)
+        _style = os.path.join(config.style, fname)
+        _content_segment = os.path.join(config.content_segment, fname) if config.content_segment else None
+        _style_segment = os.path.join(config.style_segment, fname) if config.style_segment else None
+
+    elif config.controlled == 'content':
+        # one fixed content file with various style files
+        _content = os.path.join(config.content, ctrl_fname)
+        _style = os.path.join(config.style, fname)
+        _content_segment = os.path.join(config.content_segment, ctrl_fname) if config.content_segment else None
+        _style_segment = os.path.join(config.style_segment, fname) if config.style_segment else None
+    else:
+        # one fixed style files with various content files
+        _content = os.path.join(config.content, fname)
+        _style = os.path.join(config.style, ctrl_fname)
+        _content_segment = os.path.join(config.content_segment, fname) if config.content_segment else None
+        _style_segment = os.path.join(config.style_segment, ctrl_fname) if config.style_segment else None
+
+    _output = os.path.join(config.output, fname)
+    return _content, _style, _content_segment, _style_segment, _output

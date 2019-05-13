@@ -30,7 +30,7 @@ from torchvision.utils import save_image
 from model import WaveEncoder, WaveDecoder
 
 from utils.core import feature_wct
-from utils.io import Timer, open_image, load_segment, compute_label_info
+from utils.io import Timer, open_image, load_segment, compute_label_info, get_filepaths
 
 
 class WCT2:
@@ -133,22 +133,37 @@ def run_bulk(config):
     if config.transfer_at_skip:
         transfer_at.add('skip')
 
-    # The filenames of the content and style pair should match
-    fnames = set(os.listdir(config.content)) & set(os.listdir(config.style))
+    if not config.controlled:
+        # The filenames of the content and style pair should match
+        fnames = set(os.listdir(config.content)) & set(os.listdir(config.style))
 
-    if config.content_segment and config.style_segment:
-        fnames &= set(os.listdir(config.content_segment))
-        fnames &= set(os.listdir(config.style_segment))
+        if config.content_segment and config.style_segment:
+            fnames &= set(os.listdir(config.content_segment))
+            fnames &= set(os.listdir(config.style_segment))
+        ctrl_fname = None
+
+    elif config.controlled == 'content':
+        # Transfer a fixed content to various styles
+        fnames = set(os.listdir(config.style))
+        ctrl_fname = os.listdir(config.content)[0]
+
+    else:
+        # Transfer various contents to a fixed style
+        fnames = set(os.listdir(config.content))
+        ctrl_fname = os.listdir(config.style)[0]
 
     for fname in tqdm.tqdm(fnames):
-        if not fname.endswith('.png'):
-            print('invalid file (should end with .png), ', fname)
+        if not fname.endswith('.png') and not fname.endswith('.jpg'):
+            print('invalid file (should end with .png or .jpg), ', fname)
             continue
-        _content = os.path.join(config.content, fname)
-        _style = os.path.join(config.style, fname)
-        _content_segment = os.path.join(config.content_segment, fname) if config.content_segment else None
-        _style_segment = os.path.join(config.style_segment, fname) if config.style_segment else None
-        _output = os.path.join(config.output, fname)
+
+        _content, _style, _content_segment, _style_segment, _output = get_filepaths(config, fname, ctrl_fname)
+
+        # _content = os.path.join(config.content, fname)
+        # _style = os.path.join(config.style, fname)
+        # _content_segment = os.path.join(config.content_segment, fname) if config.content_segment else None
+        # _style_segment = os.path.join(config.style_segment, fname) if config.style_segment else None
+        # _output = os.path.join(config.output, fname)
 
         content = open_image(_content, config.image_size).to(device)
         style = open_image(_style, config.image_size).to(device)
@@ -158,7 +173,8 @@ def run_bulk(config):
         if not config.transfer_all:
             with Timer('Elapsed time in whole WCT: {}', config.verbose):
                 postfix = '_'.join(sorted(list(transfer_at)))
-                fname_output = _output.replace('.png', '_{}_{}.png'.format(config.option_unpool, postfix))
+                _, ext = os.path.splitext(_output)
+                fname_output = _output.replace(ext, ('_{}_{}' + ext).format(config.option_unpool, postfix))
                 print('------ transfer:', _output)
                 wct2 = WCT2(transfer_at=transfer_at, option_unpool=config.option_unpool, device=device, verbose=config.verbose)
                 with torch.no_grad():
@@ -168,7 +184,8 @@ def run_bulk(config):
             for _transfer_at in get_all_transfer():
                 with Timer('Elapsed time in whole WCT: {}', config.verbose):
                     postfix = '_'.join(sorted(list(_transfer_at)))
-                    fname_output = _output.replace('.png', '_{}_{}.png'.format(config.option_unpool, postfix))
+                    _, ext = os.path.splitext(_output)
+                    fname_output = _output.replace(ext, ('_{}_{}' + ext).format(config.option_unpool, postfix))
                     print('------ transfer:', fname)
                     wct2 = WCT2(transfer_at=_transfer_at, option_unpool=config.option_unpool, device=device, verbose=config.verbose)
                     with torch.no_grad():
@@ -192,6 +209,7 @@ if __name__ == '__main__':
     parser.add_argument('-a', '--transfer_all', action='store_true')
     parser.add_argument('--cpu', action='store_true')
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--controlled', type=str, default=None, choices=['content', 'style'])
     config = parser.parse_args()
 
     print(config)
