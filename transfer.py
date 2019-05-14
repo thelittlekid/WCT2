@@ -133,50 +133,15 @@ def run_bulk(config):
     if config.transfer_at_skip:
         transfer_at.add('skip')
 
-    if not config.controlled:
-        # The filenames of the content and style pair should match
-        fnames = set(os.listdir(config.content)) & set(os.listdir(config.style))
-
-        if config.content_segment and config.style_segment:
-            fnames &= set(os.listdir(config.content_segment))
-            fnames &= set(os.listdir(config.style_segment))
-        ctrl_fname = None
-
-    elif config.controlled == 'content':
-        # Transfer a fixed content to various styles
-        fnames = set(os.listdir(config.style))
-        ctrl_fname = os.listdir(config.content)[0]
-
-    else:
-        # Transfer various contents to a fixed style
-        fnames = set(os.listdir(config.content))
-        ctrl_fname = os.listdir(config.style)[0]
-
-    for fname in tqdm.tqdm(fnames):
-        if not fname.endswith('.png') and not fname.endswith('.jpg'):
-            print('invalid file (should end with .png or .jpg), ', fname)
-            continue
-
-        _content, _style, _content_segment, _style_segment, _output = get_filepaths(config, fname, ctrl_fname)
-
-        # _content = os.path.join(config.content, fname)
-        # _style = os.path.join(config.style, fname)
-        # _content_segment = os.path.join(config.content_segment, fname) if config.content_segment else None
-        # _style_segment = os.path.join(config.style_segment, fname) if config.style_segment else None
-        # _output = os.path.join(config.output, fname)
-
-        content = open_image(_content, config.image_size).to(device)
-        style = open_image(_style, config.image_size).to(device)
-        content_segment = load_segment(_content_segment, config.image_size)
-        style_segment = load_segment(_style_segment, config.image_size)
-
+    def apply_transfer():
         if not config.transfer_all:
             with Timer('Elapsed time in whole WCT: {}', config.verbose):
                 postfix = '_'.join(sorted(list(transfer_at)))
                 _, ext = os.path.splitext(_output)
                 fname_output = _output.replace(ext, ('_{}_{}' + ext).format(config.option_unpool, postfix))
                 print('------ transfer:', _output)
-                wct2 = WCT2(transfer_at=transfer_at, option_unpool=config.option_unpool, device=device, verbose=config.verbose)
+                wct2 = WCT2(transfer_at=transfer_at, option_unpool=config.option_unpool,
+                            device=device, verbose=config.verbose)
                 with torch.no_grad():
                     img = wct2.transfer(content, style, content_segment, style_segment, alpha=config.alpha)
                 save_image(img.clamp_(0, 1), fname_output, padding=0)
@@ -187,10 +152,60 @@ def run_bulk(config):
                     _, ext = os.path.splitext(_output)
                     fname_output = _output.replace(ext, ('_{}_{}' + ext).format(config.option_unpool, postfix))
                     print('------ transfer:', fname)
-                    wct2 = WCT2(transfer_at=_transfer_at, option_unpool=config.option_unpool, device=device, verbose=config.verbose)
+                    wct2 = WCT2(transfer_at=_transfer_at, option_unpool=config.option_unpool,
+                                device=device, verbose=config.verbose)
                     with torch.no_grad():
                         img = wct2.transfer(content, style, content_segment, style_segment, alpha=config.alpha)
                     save_image(img.clamp_(0, 1), fname_output, padding=0)
+
+    if os.path.isfile(config.content) and os.path.isfile(config.style):
+        # Transfer one content with one target style
+        if config.content_segment and config.style_segment:
+            assert os.path.isfile(config.content_segment) and os.path.isfile(config.style_segment), \
+                "Segmentation maps (content_segment and style_segment) must be specified as files, not directories"
+
+        fname = os.path.basename(config.content)
+        _output = os.path.join(config.output,
+                               os.path.splitext(os.path.basename(config.content))[0] + '_' +
+                               os.path.splitext(os.path.basename(config.style))[0] + '.png')
+
+        content = open_image(config.content, config.image_size).to(device)
+        style = open_image(config.style, config.image_size).to(device)
+        content_segment = load_segment(config.content_segment, config.image_size)
+        style_segment = load_segment(config.style_segment, config.image_size)
+
+        apply_transfer()
+
+    else:
+        if os.path.isfile(config.style):
+            # Transfer various contents (specified by a directory) to a fixed style (specified by a file path)
+            fnames = set(os.listdir(config.content))
+        elif os.path.isfile(config.content):
+            # Transfer a fixed content (specified by a file path) to various of styles (specified by a directory)
+            fnames = set(os.listdir(config.style))
+        else:
+            # Both contents and styles are specified by directory, need to match the file names
+            fnames = set(os.listdir(config.content)) & set(os.listdir(config.style))
+
+            if config.content_segment and config.style_segment:
+                assert os.path.isdir(config.content_segment) and os.path.isdir(config.style_segment), \
+                    "Segmentation maps (content_segment and style_segment) must be specified as directories, not files"
+                fnames &= set(os.listdir(config.content_segment))
+                fnames &= set(os.listdir(config.style_segment))
+
+        for fname in tqdm.tqdm(fnames):
+            if not fname.endswith('.png') and not fname.endswith('.jpg'):
+                print('invalid file (should end with .png or .jpg), ', fname)
+                continue
+
+            _content, _style, _content_segment, _style_segment, _output = get_filepaths(config, fname)
+
+            content = open_image(_content, config.image_size).to(device)
+            style = open_image(_style, config.image_size).to(device)
+            content_segment = load_segment(_content_segment, config.image_size)
+            style_segment = load_segment(_style_segment, config.image_size)
+
+            apply_transfer()
 
 
 if __name__ == '__main__':
@@ -209,7 +224,6 @@ if __name__ == '__main__':
     parser.add_argument('-a', '--transfer_all', action='store_true')
     parser.add_argument('--cpu', action='store_true')
     parser.add_argument('--verbose', action='store_true')
-    parser.add_argument('--controlled', type=str, default=None, choices=['content', 'style'])
     config = parser.parse_args()
 
     print(config)

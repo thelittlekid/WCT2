@@ -138,34 +138,37 @@ def match_filenames(src_dir, target_dir):
             pass
 
 
-def get_filepaths(config, fname, ctrl_fname):
+def get_filepaths(config, fname):
     """
     Get file paths and for image pairs
     :param config: namespace of configuration. The field config.controlled specifies the mode: original, controlled content
                    or controlled style
     :param fname: name of the file that is not on the controlled side
-    :param ctrl_fname: name of the file that is on the controlled side
     :return: file paths of the inputs and output
     """
 
-    if not config.controlled:
+    if os.path.isdir(config.content) and os.path.isdir(config.style):
+        # multiple contents and multiple styles, matched using file names
         _content = os.path.join(config.content, fname)
         _style = os.path.join(config.style, fname)
         _content_segment = os.path.join(config.content_segment, fname) if config.content_segment else None
         _style_segment = os.path.join(config.style_segment, fname) if config.style_segment else None
 
-    elif config.controlled == 'content':
+    elif os.path.isdir(config.style):
         # one fixed content file with various style files
-        _content = os.path.join(config.content, ctrl_fname)
+        _content = config.content
         _style = os.path.join(config.style, fname)
-        _content_segment = os.path.join(config.content_segment, ctrl_fname) if config.content_segment else None
+        _content_segment = config.content_segment if config.content_segment and os.path.isfile(config.content_segment) \
+            else None
         _style_segment = os.path.join(config.style_segment, fname) if config.style_segment else None
-    else:
+    elif os.path.isdir(config.content):
         # one fixed style files with various content files
         _content = os.path.join(config.content, fname)
-        _style = os.path.join(config.style, ctrl_fname)
+        _style = config.style
         _content_segment = os.path.join(config.content_segment, fname) if config.content_segment else None
-        _style_segment = os.path.join(config.style_segment, ctrl_fname) if config.style_segment else None
+        _style_segment = config.style_segment if config.style_segment and os.path.isfile(config.style_segment) else None
+    else:
+        assert "The function get_filepaths should not be called if both content and style are specified as file paths."
 
     _output = os.path.join(config.output, fname)
     return _content, _style, _content_segment, _style_segment, _output
